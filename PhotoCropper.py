@@ -4,112 +4,129 @@ import numpy as np
 import zipfile
 import io
 
-# Check OpenCV version and backend
+# Check OpenCV installation
 st.sidebar.info(f"OpenCV version: {cv2.__version__}")
+st.sidebar.info(f"NumPy version: {np.__version__}")
 
 def enhance_image(image):
     """Improve image quality for better face detection"""
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    l = clahe.apply(l)
-    lab = cv2.merge((l, a, b))
-    enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-    return cv2.filter2D(enhanced, -1, kernel)
+    try:
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        lab = cv2.merge((l, a, b))
+        enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        return cv2.filter2D(enhanced, -1, kernel)
+    except Exception as e:
+        st.error(f"Error enhancing image: {e}")
+        return image
 
 def detect_face(image):
     """Detect faces with improved parameters"""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
-    # Try to load Haar cascades
     try:
-        detectors = [
-            cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
-            cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml')
-        ]
-    except:
-        st.error("Error loading face detection models. Please ensure OpenCV is properly installed.")
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Try to load Haar cascades
+        try:
+            detectors = [
+                cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
+                cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml')
+            ]
+        except Exception as e:
+            st.error(f"Error loading face detection models: {e}")
+            return None
+        
+        faces = []
+        for detector in detectors:
+            try:
+                detected_faces = detector.detectMultiScale(
+                    gray,
+                    scaleFactor=1.05,
+                    minNeighbors=7,
+                    minSize=(100, 100),
+                    flags=cv2.CASCADE_SCALE_IMAGE
+                )
+                if len(detected_faces) > 0:
+                    faces.extend(detected_faces)
+            except Exception as e:
+                st.warning(f"Face detector error: {e}")
+                continue
+        
+        if faces:
+            # Return largest face with padding
+            face = sorted(faces, key=lambda x: x[2]*x[3], reverse=True)[0]
+            x, y, w, h = face
+            # Add 20% padding around detected face
+            pad_w = int(w * 0.2)
+            pad_h = int(h * 0.2)
+            x = max(0, x - pad_w)
+            y = max(0, y - pad_h)
+            w = min(image.shape[1] - x, w + 2*pad_w)
+            h = min(image.shape[0] - y, h + 2*pad_h)
+            return (x, y, w, h)
         return None
-    
-    faces = []
-    for detector in detectors:
-        detected_faces = detector.detectMultiScale(
-            gray,
-            scaleFactor=1.05,
-            minNeighbors=7,
-            minSize=(100, 100),
-            flags=cv2.CASCADE_SCALE_IMAGE
-        )
-        if len(detected_faces) > 0:
-            faces.extend(detected_faces)
-    
-    if faces:
-        # Return largest face with padding
-        face = sorted(faces, key=lambda x: x[2]*x[3], reverse=True)[0]
-        x, y, w, h = face
-        # Add 20% padding around detected face
-        pad_w = int(w * 0.2)
-        pad_h = int(h * 0.2)
-        x = max(0, x - pad_w)
-        y = max(0, y - pad_h)
-        w = min(image.shape[1] - x, w + 2*pad_w)
-        h = min(image.shape[0] - y, h + 2*pad_h)
-        return (x, y, w, h)
-    return None
+    except Exception as e:
+        st.error(f"Error detecting face: {e}")
+        return None
 
 def calculate_crop(image, face, ratio_type='standard'):
     """Calculate crop with proper headroom while maintaining aspect ratio"""
-    x, y, w, h = face
-    img_h, img_w = image.shape[:2]
-    
-    # Set target ratios
-    if ratio_type == 'standard':
-        target_ratio = 2.0 / 2.3
-    else:  # square
-        target_ratio = 1.0
-    
-    # Calculate the center of the face
-    face_center_x = x + w // 2
-    face_center_y = y + h // 2
-    
-    # Calculate crop dimensions based on face size
-    if ratio_type == 'standard':
-        target_height = int(h / 0.7)
-    else:
-        target_height = int(h / 0.65)
-    
-    target_width = int(target_height * target_ratio)
-    
-    # Calculate crop coordinates centered on face
-    crop_x1 = max(0, face_center_x - target_width // 2)
-    crop_y1 = max(0, face_center_y - target_height // 2)
-    crop_x2 = min(img_w, crop_x1 + target_width)
-    crop_y2 = min(img_h, crop_y1 + target_height)
-    
-    # Adjust boundaries
-    if crop_x2 - crop_x1 < target_width:
-        if crop_x1 == 0:
-            crop_x2 = min(img_w, target_width)
+    try:
+        x, y, w, h = face
+        img_h, img_w = image.shape[:2]
+        
+        # Set target ratios
+        if ratio_type == 'standard':
+            target_ratio = 2.0 / 2.3
+        else:  # square
+            target_ratio = 1.0
+        
+        # Calculate the center of the face
+        face_center_x = x + w // 2
+        face_center_y = y + h // 2
+        
+        # Calculate crop dimensions based on face size
+        if ratio_type == 'standard':
+            target_height = int(h / 0.7)
         else:
-            crop_x1 = max(0, img_w - target_width)
-    
-    if crop_y2 - crop_y1 < target_height:
-        if crop_y1 == 0:
-            crop_y2 = min(img_h, target_height)
-        else:
-            crop_y1 = max(0, img_h - target_height)
-    
-    # Final dimensions
-    final_width = crop_x2 - crop_x1
-    final_height = crop_y2 - crop_y1
-    
-    # Verify minimum dimensions
-    min_dim = 300
-    if final_width < min_dim or final_height < min_dim:
+            target_height = int(h / 0.65)
+        
+        target_width = int(target_height * target_ratio)
+        
+        # Calculate crop coordinates centered on face
+        crop_x1 = max(0, face_center_x - target_width // 2)
+        crop_y1 = max(0, face_center_y - target_height // 2)
+        crop_x2 = min(img_w, crop_x1 + target_width)
+        crop_y2 = min(img_h, crop_y1 + target_height)
+        
+        # Adjust boundaries
+        if crop_x2 - crop_x1 < target_width:
+            if crop_x1 == 0:
+                crop_x2 = min(img_w, target_width)
+            else:
+                crop_x1 = max(0, img_w - target_width)
+        
+        if crop_y2 - crop_y1 < target_height:
+            if crop_y1 == 0:
+                crop_y2 = min(img_h, target_height)
+            else:
+                crop_y1 = max(0, img_h - target_height)
+        
+        # Final dimensions
+        final_width = crop_x2 - crop_x1
+        final_height = crop_y2 - crop_y1
+        
+        # Verify minimum dimensions
+        min_dim = 300
+        if final_width < min_dim or final_height < min_dim:
+            return None
+        
+        return (crop_x1, crop_y1, crop_x2, crop_y2)
+    except Exception as e:
+        st.error(f"Error calculating crop: {e}")
         return None
-    
-    return (crop_x1, crop_y1, crop_x2, crop_y2)
 
 def process_uploaded_files(uploaded_files, ratio_type):
     """Process all uploaded files and return results"""
