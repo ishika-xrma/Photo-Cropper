@@ -3,6 +3,7 @@ import numpy as np
 import zipfile
 import io
 import os
+from PIL import Image
 
 # Set page config must be the first Streamlit command
 st.set_page_config(
@@ -182,15 +183,16 @@ def process_uploaded_files(uploaded_files, ratio_type):
             
             resized = cv2.resize(cropped, output_size, interpolation=cv2.INTER_CUBIC)
             
-            # Convert for display (BGR to RGB)
-            display_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+            # Convert for display (BGR to RGB) and to PIL Image
+            rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb_image)
             
             # Encode for download
             _, buffer = cv2.imencode('.jpg', resized, [cv2.IMWRITE_JPEG_QUALITY, 95])
             
             processed_images[uploaded_file.name] = {
                 'image_bytes': buffer.tobytes(),
-                'display_image': display_image,  # This is now a numpy array in RGB format
+                'display_image': pil_image,  # Store as PIL Image
                 'success': True
             }
             
@@ -245,7 +247,7 @@ def main():
         st.success(f"📁 Found {len(uploaded_files)} file(s)")
         
         if not st.session_state.processed:
-            if st.button("🚀 Process Photos", type="primary", use_container_width=True):
+            if st.button("🚀 Process Photos", type="primary"):
                 with st.spinner("Processing images..."):
                     processed_images = process_uploaded_files(uploaded_files, ratio_type)
                     st.session_state.processed_images = processed_images
@@ -270,18 +272,15 @@ def main():
             for i, filename in enumerate(successful):
                 data = processed_images[filename]
                 with cols[i % 2]:
-                    # Ensure the image is in the correct format for display
                     try:
-                        # Convert numpy array to PIL Image if needed, or use directly
+                        # Use use_column_width instead of use_container_width
                         st.image(
-                            data['display_image'],  # This should be a numpy array in RGB format
+                            data['display_image'],  # PIL Image
                             caption=filename,
-                            use_container_width=True,
-                            channels="RGB"  # Explicitly specify the color channels
+                            use_column_width=True  # Changed parameter name
                         )
                     except Exception as e:
                         st.error(f"Error displaying image {filename}: {e}")
-                        # Fallback: show download button only
                         st.write(f"Processed: {filename}")
             
             # Download button
@@ -297,8 +296,7 @@ def main():
                 label="📥 Download All Photos",
                 data=zip_buffer,
                 file_name="passport_photos.zip",
-                mime="application/zip",
-                use_container_width=True
+                mime="application/zip"
             )
         
         if failed:
@@ -309,7 +307,7 @@ def main():
                     st.error(f"{filename}: {processed_images[filename]['error']}")
         
         # Reset button
-        if st.button("🔄 Process New Photos", use_container_width=True):
+        if st.button("🔄 Process New Photos"):
             st.session_state.processed = False
             st.session_state.processed_images = {}
             st.rerun()
