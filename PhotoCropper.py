@@ -94,7 +94,7 @@ def detect_face(image):
         return None
 
 def calculate_crop(image, face, ratio_type='standard'):
-    """Calculate crop with proper headroom"""
+    """Calculate crop with precise headroom control"""
     try:
         x, y, w, h = face
         img_h, img_w = image.shape[:2]
@@ -107,30 +107,30 @@ def calculate_crop(image, face, ratio_type='standard'):
         
         # Calculate the center of the face
         face_center_x = x + w // 2
+        face_center_y = y + h // 2
         
-        # For passport photos, we need significant headroom above the face
-        # The face should occupy about 70-80% of the total height
+        # For passport photos, standard guidelines:
+        # - Face should be 70-80% of the photo height
+        # - Significant headroom above (about 25-30% of total height)
         
-        # Calculate target height based on face height
         if ratio_type == 'standard':
-            # For standard passport: face height = ~70% of total height
+            # Face height = 70% of total height
             target_height = int(h / 0.7)
+            # Headroom = 25% of total height above the head
+            headroom = int(target_height * 0.25)
         else:
-            # For square: face height = ~65% of total height
+            # Face height = 65% of total height for square
             target_height = int(h / 0.65)
+            # Headroom = 30% of total height above the head
+            headroom = int(target_height * 0.3)
         
         target_width = int(target_height * target_ratio)
         
-        # Calculate headroom - more space above the head
-        # Position the face lower in the frame with proper headroom
-        headroom_ratio = 0.25  # 25% of the height above the head
-        headroom = int(target_height * headroom_ratio)
-        
-        # Calculate crop coordinates with proper headroom
+        # Calculate crop coordinates
         crop_x1 = max(0, face_center_x - target_width // 2)
         
-        # Position the crop so the face is lower in the frame
-        # The top of the head should be at about 1/4 from the top of the crop
+        # Position the crop so there's proper headroom above the face
+        # The top of the head should be at (headroom) pixels from the top
         crop_y1 = max(0, y - headroom)
         
         crop_x2 = min(img_w, crop_x1 + target_width)
@@ -149,13 +149,14 @@ def calculate_crop(image, face, ratio_type='standard'):
             else:
                 crop_y1 = max(0, crop_y2 - target_height)
         
-        # Final dimensions
-        final_width = crop_x2 - crop_x1
-        final_height = crop_y2 - crop_y1
+        # Final check to ensure we have proper headroom
+        final_headroom = y - crop_y1
+        if final_headroom < headroom * 0.5:  # At least 50% of desired headroom
+            st.warning(f"Limited headroom available for {uploaded_file.name}")
         
         # Verify minimum dimensions
         min_dim = 300
-        if final_width < min_dim or final_height < min_dim:
+        if crop_x2 - crop_x1 < min_dim or crop_y2 - crop_y1 < min_dim:
             return None
         
         return (crop_x1, crop_y1, crop_x2, crop_y2)
@@ -163,6 +164,8 @@ def calculate_crop(image, face, ratio_type='standard'):
     except Exception as e:
         st.error(f"Error calculating crop: {e}")
         return None
+
+
 def process_uploaded_files(uploaded_files, ratio_type):
     """Process all uploaded files"""
     processed_images = {}
@@ -349,4 +352,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
