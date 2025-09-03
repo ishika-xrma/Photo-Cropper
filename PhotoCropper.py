@@ -105,32 +105,64 @@ def calculate_crop(image, face, ratio_type='standard'):
         else:  # square
             target_ratio = 1.0
         
-        # Calculate crop based on face size
+        # Calculate the center of the face
         face_center_x = x + w // 2
-        face_center_y = y + h // 2
         
-        # Determine crop size
-        crop_height = int(h * 1.8)  # Include headroom
-        crop_width = int(crop_height * target_ratio)
+        # For passport photos, we need significant headroom above the face
+        # The face should occupy about 70-80% of the total height
         
-        # Calculate crop coordinates
-        crop_x1 = max(0, face_center_x - crop_width // 2)
-        crop_y1 = max(0, face_center_y - crop_height // 3)  # More space above
-        crop_x2 = min(img_w, crop_x1 + crop_width)
-        crop_y2 = min(img_h, crop_y1 + crop_height)
+        # Calculate target height based on face height
+        if ratio_type == 'standard':
+            # For standard passport: face height = ~70% of total height
+            target_height = int(h / 0.7)
+        else:
+            # For square: face height = ~65% of total height
+            target_height = int(h / 0.65)
         
-        # Adjust if out of bounds
-        if crop_x2 - crop_x1 < crop_width:
-            crop_x1 = max(0, crop_x2 - crop_width)
-        if crop_y2 - crop_y1 < crop_height:
-            crop_y1 = max(0, crop_y2 - crop_height)
+        target_width = int(target_height * target_ratio)
+        
+        # Calculate headroom - more space above the head
+        # Position the face lower in the frame with proper headroom
+        headroom_ratio = 0.25  # 25% of the height above the head
+        headroom = int(target_height * headroom_ratio)
+        
+        # Calculate crop coordinates with proper headroom
+        crop_x1 = max(0, face_center_x - target_width // 2)
+        
+        # Position the crop so the face is lower in the frame
+        # The top of the head should be at about 1/4 from the top of the crop
+        crop_y1 = max(0, y - headroom)
+        
+        crop_x2 = min(img_w, crop_x1 + target_width)
+        crop_y2 = min(img_h, crop_y1 + target_height)
+        
+        # Adjust if we're at image boundaries
+        if crop_x2 - crop_x1 < target_width:
+            if crop_x1 == 0:
+                crop_x2 = min(img_w, crop_x1 + target_width)
+            else:
+                crop_x1 = max(0, crop_x2 - target_width)
+        
+        if crop_y2 - crop_y1 < target_height:
+            if crop_y1 == 0:
+                crop_y2 = min(img_h, crop_y1 + target_height)
+            else:
+                crop_y1 = max(0, crop_y2 - target_height)
+        
+        # Final dimensions
+        final_width = crop_x2 - crop_x1
+        final_height = crop_y2 - crop_y1
+        
+        # Verify minimum dimensions
+        min_dim = 300
+        if final_width < min_dim or final_height < min_dim:
+            return None
         
         return (crop_x1, crop_y1, crop_x2, crop_y2)
         
     except Exception as e:
         st.error(f"Error calculating crop: {e}")
         return None
-
 def process_uploaded_files(uploaded_files, ratio_type):
     """Process all uploaded files"""
     processed_images = {}
@@ -317,3 +349,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
