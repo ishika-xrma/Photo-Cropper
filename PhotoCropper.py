@@ -4,28 +4,24 @@ import zipfile
 import io
 import os
 
+# Set page config must be the first Streamlit command
+st.set_page_config(
+    page_title="Passport Photo Cropper",
+    page_icon="📸",
+    layout="wide"
+)
+
 # Try to import OpenCV with fallback
 try:
     import cv2
     OPENCV_AVAILABLE = True
-    st.sidebar.success("✅ OpenCV loaded successfully")
 except ImportError:
     OPENCV_AVAILABLE = False
-    st.sidebar.error("❌ OpenCV not available - using fallback methods")
-
-# Fallback functions if OpenCV is not available
-if not OPENCV_AVAILABLE:
-    st.error("""
-    **OpenCV is not available on this system.**
-    
-    This app requires OpenCV for image processing. Please:
-    1. Check that opencv-python-headless is in your requirements.txt
-    2. Ensure all dependencies are properly installed
-    3. Try using a different OpenCV version
-    """)
+    st.error("❌ OpenCV not available - using fallback methods")
     st.stop()
 
 # Display versions for debugging
+st.sidebar.success("✅ OpenCV loaded successfully")
 st.sidebar.info(f"OpenCV version: {cv2.__version__}")
 st.sidebar.info(f"NumPy version: {np.__version__}")
 
@@ -211,12 +207,6 @@ def process_uploaded_files(uploaded_files, ratio_type):
     return processed_images
 
 def main():
-    st.set_page_config(
-        page_title="Passport Photo Cropper",
-        page_icon="📸",
-        layout="wide"
-    )
-    
     st.title("📸 Passport Photo Cropper")
     st.write("Automatically crop and resize photos for passport applications")
     
@@ -261,13 +251,9 @@ def main():
         if not st.session_state.processed:
             if st.button("🚀 Process Photos", type="primary", use_container_width=True):
                 with st.spinner("Processing images..."):
-                    progress_bar = st.progress(0)
-                    
                     processed_images = process_uploaded_files(uploaded_files, ratio_type)
                     st.session_state.processed_images = processed_images
                     st.session_state.processed = True
-                    
-                    progress_bar.progress(100)
                     st.rerun()
     
     # Display results
