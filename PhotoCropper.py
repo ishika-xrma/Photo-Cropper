@@ -60,12 +60,8 @@ def detect_face(image):
                 cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
             )
         except:
-            # Fallback: try to load from absolute path
-            try:
-                face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-            except:
-                st.error("Could not load face detection model")
-                return None
+            st.error("Could not load face detection model")
+            return None
         
         # Detect faces
         faces = face_cascade.detectMultiScale(
@@ -186,7 +182,7 @@ def process_uploaded_files(uploaded_files, ratio_type):
             
             resized = cv2.resize(cropped, output_size, interpolation=cv2.INTER_CUBIC)
             
-            # Convert for display
+            # Convert for display (BGR to RGB)
             display_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
             
             # Encode for download
@@ -194,7 +190,7 @@ def process_uploaded_files(uploaded_files, ratio_type):
             
             processed_images[uploaded_file.name] = {
                 'image_bytes': buffer.tobytes(),
-                'display_image': display_image,
+                'display_image': display_image,  # This is now a numpy array in RGB format
                 'success': True
             }
             
@@ -274,11 +270,19 @@ def main():
             for i, filename in enumerate(successful):
                 data = processed_images[filename]
                 with cols[i % 2]:
-                    st.image(
-                        data['display_image'],
-                        caption=filename,
-                        use_container_width=True
-                    )
+                    # Ensure the image is in the correct format for display
+                    try:
+                        # Convert numpy array to PIL Image if needed, or use directly
+                        st.image(
+                            data['display_image'],  # This should be a numpy array in RGB format
+                            caption=filename,
+                            use_container_width=True,
+                            channels="RGB"  # Explicitly specify the color channels
+                        )
+                    except Exception as e:
+                        st.error(f"Error displaying image {filename}: {e}")
+                        # Fallback: show download button only
+                        st.write(f"Processed: {filename}")
             
             # Download button
             zip_buffer = io.BytesIO()
