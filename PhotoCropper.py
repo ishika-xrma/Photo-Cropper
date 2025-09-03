@@ -112,17 +112,23 @@ def calculate_crop(image, face, ratio_type='standard'):
     face_center_y = y + h // 2
 
     # Calculate crop dimensions based on face size
-    # For passport photos, the face should be about 70-80% of the image height
+    # For passport photos, the face should be about 60-70% of the image height
+    # (reduced from 70-80% to give more space around the face)
     if ratio_type == 'standard':
-        target_height = int(h / 0.7)  # Face height is 70% of total height
+        target_height = int(h / 0.6)  # Face height is 60% of total height (was 70%)
     else:
-        target_height = int(h / 0.65)  # Face height is 65% of total height for square
+        target_height = int(h / 0.55)  # Face height is 55% of total height for square (was 65%)
 
     target_width = int(target_height * target_ratio)
 
-    # Calculate crop coordinates centered on face
+    # Calculate crop coordinates with more headroom
+    # Position the face lower in the frame to allow more space above the head
     crop_x1 = max(0, face_center_x - target_width // 2)
-    crop_y1 = max(0, face_center_y - target_height // 2)
+    
+    # Add more headroom by positioning the face lower in the frame
+    # The face center should be lower than the vertical center
+    headroom_factor = 0.6  # Position face center at 60% of height (was 50%)
+    crop_y1 = max(0, int(face_center_y - target_height * headroom_factor))
 
     crop_x2 = min(img_w, crop_x1 + target_width)
     crop_y2 = min(img_h, crop_y1 + target_height)
@@ -275,10 +281,10 @@ def main():
         2. Click 'Process Photos'
         3. Download your cropped photos
         
-        **Features:**
-        - Optimal face detection and cropping
-        - Proper headroom and aspect ratio
-        - High-quality output
+        **Now with improved headroom:**
+        - More space above the head
+        - Better composition
+        - Professional passport photo standards
         """)
     
     with col2:
@@ -312,7 +318,7 @@ def main():
     if st.session_state.processed and st.session_state.processed_images:
         processed_images = st.session_state.processed_images
         successful = [k for k, v in processed_images.items() if v['success']]
-        failed = [k for k, v in processed_images.items() if not v['success']]
+        failed = [k, v in processed_images.items() if not v['success']]
         
         st.subheader("Results")
         
