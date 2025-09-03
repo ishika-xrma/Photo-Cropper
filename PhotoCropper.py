@@ -94,77 +94,91 @@ def detect_face(image):
         return None
 
 def calculate_crop(image, face, ratio_type='standard'):
-    """Calculate crop with precise headroom control"""
-    try:
-        x, y, w, h = face
-        img_h, img_w = image.shape[:2]
-        
-        # Set aspect ratio
-        if ratio_type == 'standard':
-            target_ratio = 2.0 / 2.3
-        else:  # square
-            target_ratio = 1.0
-        
-        # Calculate the center of the face
-        face_center_x = x + w // 2
-        face_center_y = y + h // 2
-        
-        # For passport photos, standard guidelines:
-        # - Face should be 70-80% of the photo height
-        # - Significant headroom above (about 25-30% of total height)
-        
-        if ratio_type == 'standard':
-            # Face height = 70% of total height
-            target_height = int(h / 0.7)
-            # Headroom = 25% of total height above the head
-            headroom = int(target_height * 0.25)
+    """
+    Calculate crop with proper headroom while maintaining aspect ratio
+    ratio_type: 'standard' (2:2.3) or 'square' (1:1)
+    """
+    x, y, w, h = face
+    img_h, img_w = image.shape[:2]
+
+    # Set target ratios
+    if ratio_type == 'standard':
+        target_ratio = 2.0 / 2.3  # Width/Height ratio for standard passport
+    else:  # square
+        target_ratio = 1.0
+
+    # Calculate the center of the face
+    face_center_x = x + w // 2
+    face_center_y = y + h // 2
+
+    # Calculate crop dimensions based on face size
+    # For passport photos, the face should be about 70-80% of the image height
+    if ratio_type == 'standard':
+        target_height = int(h / 0.7)  # Face height is 70% of total height
+    else:
+        target_height = int(h / 0.65)  # Face height is 65% of total height for square
+
+    target_width = int(target_height * target_ratio)
+
+    # Calculate crop coordinates centered on face
+    crop_x1 = max(0, face_center_x - target_width // 2)
+    crop_y1 = max(0, face_center_y - target_height // 2)
+
+    crop_x2 = min(img_w, crop_x1 + target_width)
+    crop_y2 = min(img_h, crop_y1 + target_height)
+
+    # Adjust if we're at image boundaries
+    if crop_x2 - crop_x1 < target_width:
+        # If we need more width, adjust accordingly
+        if crop_x1 == 0:
+            crop_x2 = min(img_w, target_width)
         else:
-            # Face height = 65% of total height for square
-            target_height = int(h / 0.65)
-            # Headroom = 30% of total height above the head
-            headroom = int(target_height * 0.3)
-        
-        target_width = int(target_height * target_ratio)
-        
-        # Calculate crop coordinates
-        crop_x1 = max(0, face_center_x - target_width // 2)
-        
-        # Position the crop so there's proper headroom above the face
-        # The top of the head should be at (headroom) pixels from the top
-        crop_y1 = max(0, y - headroom)
-        
-        crop_x2 = min(img_w, crop_x1 + target_width)
-        crop_y2 = min(img_h, crop_y1 + target_height)
-        
-        # Adjust if we're at image boundaries
-        if crop_x2 - crop_x1 < target_width:
-            if crop_x1 == 0:
-                crop_x2 = min(img_w, crop_x1 + target_width)
-            else:
-                crop_x1 = max(0, crop_x2 - target_width)
-        
-        if crop_y2 - crop_y1 < target_height:
-            if crop_y1 == 0:
-                crop_y2 = min(img_h, crop_y1 + target_height)
-            else:
-                crop_y1 = max(0, crop_y2 - target_height)
-        
-        # Final check to ensure we have proper headroom
-        final_headroom = y - crop_y1
-        if final_headroom < headroom * 0.5:  # At least 50% of desired headroom
-            st.warning(f"Limited headroom available for {uploaded_file.name}")
-        
-        # Verify minimum dimensions
-        min_dim = 300
-        if crop_x2 - crop_x1 < min_dim or crop_y2 - crop_y1 < min_dim:
-            return None
-        
-        return (crop_x1, crop_y1, crop_x2, crop_y2)
-        
-    except Exception as e:
-        st.error(f"Error calculating crop: {e}")
+            crop_x1 = max(0, img_w - target_width)
+
+    if crop_y2 - crop_y1 < target_height:
+        # If we need more height, adjust accordingly
+        if crop_y1 == 0:
+            crop_y2 = min(img_h, target_height)
+        else:
+            crop_y1 = max(0, img_h - target_height)
+
+    # Final adjustment to ensure we have the exact aspect ratio
+    final_width = crop_x2 - crop_x1
+    final_height = crop_y2 - crop_y1
+
+    # If the aspect ratio doesn't match, adjust the larger dimension
+    current_ratio = final_width / final_height
+
+    if abs(current_ratio - target_ratio) > 0.05:  # Only adjust if significantly off
+        if current_ratio > target_ratio:
+            # Too wide, reduce width
+            target_height = final_height
+            target_width = int(target_height * target_ratio)
+            crop_x1 = face_center_x - target_width // 2
+            crop_x2 = crop_x1 + target_width
+        else:
+            # Too tall, reduce height
+            target_width = final_width
+            target_height = int(target_width / target_ratio)
+            crop_y1 = face_center_y - target_height // 2
+            crop_y2 = crop_y1 + target_height
+
+    # Ensure we're still within image boundaries after adjustment
+    crop_x1 = max(0, crop_x1)
+    crop_y1 = max(0, crop_y1)
+    crop_x2 = min(img_w, crop_x2)
+    crop_y2 = min(img_h, crop_y2)
+
+    # Final dimensions
+    final_width = crop_x2 - crop_x1
+    final_height = crop_y2 - crop_y1
+
+    # Verify minimum dimensions
+    min_dim = 300
+    if final_width < min_dim or final_height < min_dim:
         return None
 
+    return (crop_x1, crop_y1, crop_x2, crop_y2)
 
 def process_uploaded_files(uploaded_files, ratio_type):
     """Process all uploaded files"""
@@ -260,6 +274,11 @@ def main():
         1. Upload photos with clear front-facing faces
         2. Click 'Process Photos'
         3. Download your cropped photos
+        
+        **Features:**
+        - Optimal face detection and cropping
+        - Proper headroom and aspect ratio
+        - High-quality output
         """)
     
     with col2:
@@ -308,11 +327,10 @@ def main():
                 data = processed_images[filename]
                 with cols[i % 2]:
                     try:
-                        # Use use_column_width instead of use_container_width
                         st.image(
-                            data['display_image'],  # PIL Image
+                            data['display_image'],
                             caption=filename,
-                            use_column_width=True  # Changed parameter name
+                            use_column_width=True
                         )
                     except Exception as e:
                         st.error(f"Error displaying image {filename}: {e}")
@@ -352,5 +370,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
