@@ -243,7 +243,7 @@ def process_uploaded_files(uploaded_files, ratio_type):
             pil_image = Image.fromarray(rgb_image)
             
             # Create a smaller version for display (even smaller)
-            display_size = (150, 173) if ratio_type == 'standard' else (150, 150)
+            display_size = (104, 120) if ratio_type == 'standard' else (104, 104)
             display_image = pil_image.resize(display_size, Image.LANCZOS)
             
             # Encode for download
@@ -417,3 +417,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
