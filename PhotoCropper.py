@@ -318,7 +318,7 @@ def main():
     if st.session_state.processed and st.session_state.processed_images:
         processed_images = st.session_state.processed_images
         successful = [k for k, v in processed_images.items() if v['success']]
-        failed = [k, v in processed_images.items() if not v['success']]
+        failed = [k for k, v in processed_images.items() if not v['success']]
         
         st.subheader("Results")
         
@@ -376,3 +376,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
