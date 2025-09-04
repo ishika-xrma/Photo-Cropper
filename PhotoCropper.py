@@ -264,9 +264,25 @@ def process_uploaded_files(uploaded_files, ratio_type):
     
     return processed_images
 
+def reset_app():
+    """Reset the app state to allow uploading new photos"""
+    st.session_state.processed = False
+    st.session_state.processed_images = {}
+    # Clear the file uploader by resetting the uploaded_files key
+    if 'uploaded_files' in st.session_state:
+        st.session_state.uploaded_files = []
+
 def main():
     st.title("📸 Passport Photo Cropper")
     st.write("Automatically crop and resize photos for passport applications")
+    
+    # Initialize session state
+    if 'processed' not in st.session_state:
+        st.session_state.processed = False
+    if 'processed_images' not in st.session_state:
+        st.session_state.processed_images = {}
+    if 'uploaded_files' not in st.session_state:
+        st.session_state.uploaded_files = []
     
     # Settings
     col1, col2 = st.columns([1, 2])
@@ -291,27 +307,27 @@ def main():
     
     with col2:
         st.subheader("Upload Photos")
+        # Use the session state to store uploaded files
         uploaded_files = st.file_uploader(
             "Choose images",
             type=["jpg", "jpeg", "png"],
             accept_multiple_files=True,
-            help="Select one or more photos to process"
+            help="Select one or more photos to process",
+            key="file_uploader"
         )
-    
-    # Initialize session state
-    if 'processed' not in st.session_state:
-        st.session_state.processed = False
-    if 'processed_images' not in st.session_state:
-        st.session_state.processed_images = {}
+        
+        # Update session state with uploaded files
+        if uploaded_files:
+            st.session_state.uploaded_files = uploaded_files
     
     # Process files
-    if uploaded_files:
-        st.success(f"📁 Found {len(uploaded_files)} file(s)")
+    if st.session_state.uploaded_files:
+        st.success(f"📁 Found {len(st.session_state.uploaded_files)} file(s)")
         
         if not st.session_state.processed:
             if st.button("🚀 Process Photos", type="primary"):
                 with st.spinner("Processing images..."):
-                    processed_images = process_uploaded_files(uploaded_files, ratio_type)
+                    processed_images = process_uploaded_files(st.session_state.uploaded_files, ratio_type)
                     st.session_state.processed_images = processed_images
                     st.session_state.processed = True
                     st.rerun()
@@ -392,12 +408,11 @@ def main():
                     st.error(f"{filename}: {processed_images[filename]['error']}")
         
         # Reset button
-        if st.button("🔄 Process New Photos", use_container_width=True):
-            st.session_state.processed = False
-            st.session_state.processed_images = {}
+        if st.button("🔄 Process New Photos", use_container_width=True, on_click=reset_app):
+            # This will be handled by the reset_app function
             st.rerun()
     
-    elif not uploaded_files:
+    elif not st.session_state.uploaded_files:
         st.info("👆 Upload photos above to get started")
 
 if __name__ == "__main__":
