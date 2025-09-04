@@ -78,8 +78,8 @@ def detect_face(image):
             faces = sorted(faces, key=lambda x: x[2] * x[3], reverse=True)
             x, y, w, h = faces[0]
             
-            # Add padding
-            padding = 20
+            # Add more padding for more distance
+            padding = 40  # Increased from 20 to 40 for more distance
             x = max(0, x - padding)
             y = max(0, y - padding)
             w = min(image.shape[1] - x, w + 2 * padding)
@@ -112,12 +112,12 @@ def calculate_crop(image, face, ratio_type='standard'):
     face_center_y = y + h // 2
 
     # Calculate crop dimensions based on face size
-    # For passport photos, the face should be about 60-70% of the image height
-    # (reduced from 70-80% to give more space around the face)
+    # For passport photos, the face should be about 50-60% of the image height
+    # (reduced further to give even more space around the face)
     if ratio_type == 'standard':
-        target_height = int(h / 0.6)  # Face height is 60% of total height (was 70%)
+        target_height = int(h / 0.5)  # Face height is 50% of total height (was 60%)
     else:
-        target_height = int(h / 0.55)  # Face height is 55% of total height for square (was 65%)
+        target_height = int(h / 0.45)  # Face height is 45% of total height for square (was 55%)
 
     target_width = int(target_height * target_ratio)
 
@@ -127,7 +127,7 @@ def calculate_crop(image, face, ratio_type='standard'):
     
     # Add more headroom by positioning the face lower in the frame
     # The face center should be lower than the vertical center
-    headroom_factor = 0.6  # Position face center at 60% of height (was 50%)
+    headroom_factor = 0.55  # Position face center at 55% of height (was 60%)
     crop_y1 = max(0, int(face_center_y - target_height * headroom_factor))
 
     crop_x2 = min(img_w, crop_x1 + target_width)
@@ -242,8 +242,8 @@ def process_uploaded_files(uploaded_files, ratio_type):
             rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(rgb_image)
             
-            # Create a smaller version for display
-            display_size = (300, 345) if ratio_type == 'standard' else (300, 300)
+            # Create a smaller version for display (even smaller)
+            display_size = (150, 173) if ratio_type == 'standard' else (150, 150)
             display_image = pil_image.resize(display_size, Image.LANCZOS)
             
             # Encode for download
@@ -284,7 +284,9 @@ def main():
         **Instructions:**
         1. Upload photos with clear front-facing faces
         2. Click 'Process Photos'
-        3. Download your cropped photos\
+        3. Download your cropped photos
+        
+        **Note:** Photos are now cropped from a bit more distance for better composition.
         """)
     
     with col2:
@@ -326,10 +328,10 @@ def main():
             st.success(f"✅ Processed {len(successful)} photo(s) successfully")
             
             # Display processed images in a grid with smaller thumbnails
-            st.subheader("Processed Photos")
+            st.subheader("Processed Photos (Small Preview)")
             
             # Calculate number of columns based on screen width
-            num_cols = 4  # Increased from 2 to 4 for smaller images
+            num_cols = 6  # Increased to 6 for even smaller images
             
             # Create columns
             cols = st.columns(num_cols)
@@ -344,18 +346,25 @@ def main():
                             caption=filename,
                             use_column_width=True
                         )
-                        
-                        # Add a download button for individual images
-                        st.download_button(
-                            label=f"Download {filename}",
-                            data=data['image_bytes'],
-                            file_name=f"cropped_{filename}",
-                            mime="image/jpeg",
-                            key=f"dl_{filename}_{i}"
-                        )
                     except Exception as e:
                         st.error(f"Error displaying image {filename}: {e}")
                         st.write(f"Processed: {filename}")
+            
+            # Add individual download buttons in a separate section
+            st.subheader("Download Options")
+            
+            # Individual download buttons in a grid
+            dl_cols = st.columns(4)
+            for i, filename in enumerate(successful):
+                data = processed_images[filename]
+                with dl_cols[i % 4]:
+                    st.download_button(
+                        label=f"⬇️ {filename[:15]}...",
+                        data=data['image_bytes'],
+                        file_name=f"cropped_{filename}",
+                        mime="image/jpeg",
+                        key=f"dl_{filename}_{i}"
+                    )
             
             # Download all button
             zip_buffer = io.BytesIO()
@@ -367,11 +376,12 @@ def main():
             zip_buffer.seek(0)
             
             st.download_button(
-                label="📥 Download All Photos",
+                label="📥 Download All Photos as ZIP",
                 data=zip_buffer,
                 file_name="passport_photos.zip",
                 mime="application/zip",
-                key="download_all"
+                key="download_all",
+                use_container_width=True
             )
         
         if failed:
@@ -382,7 +392,7 @@ def main():
                     st.error(f"{filename}: {processed_images[filename]['error']}")
         
         # Reset button
-        if st.button("🔄 Process New Photos"):
+        if st.button("🔄 Process New Photos", use_container_width=True):
             st.session_state.processed = False
             st.session_state.processed_images = {}
             st.rerun()
