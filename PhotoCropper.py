@@ -242,12 +242,17 @@ def process_uploaded_files(uploaded_files, ratio_type):
             rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(rgb_image)
             
+            # Create a smaller version for display
+            display_size = (300, 345) if ratio_type == 'standard' else (300, 300)
+            display_image = pil_image.resize(display_size, Image.LANCZOS)
+            
             # Encode for download
             _, buffer = cv2.imencode('.jpg', resized, [cv2.IMWRITE_JPEG_QUALITY, 95])
             
             processed_images[uploaded_file.name] = {
                 'image_bytes': buffer.tobytes(),
-                'display_image': pil_image,  # Store as PIL Image
+                'display_image': display_image,  # Use the smaller version for display
+                'full_image': pil_image,  # Keep the full size version for download
                 'success': True
             }
             
@@ -279,12 +284,7 @@ def main():
         **Instructions:**
         1. Upload photos with clear front-facing faces
         2. Click 'Process Photos'
-        3. Download your cropped photos
-        
-        **Now with improved headroom:**
-        - More space above the head
-        - Better composition
-        - Professional passport photo standards
+        3. Download your cropped photos\
         """)
     
     with col2:
@@ -325,24 +325,39 @@ def main():
         if successful:
             st.success(f"✅ Processed {len(successful)} photo(s) successfully")
             
-            # Display processed images
+            # Display processed images in a grid with smaller thumbnails
             st.subheader("Processed Photos")
-            cols = st.columns(2)
+            
+            # Calculate number of columns based on screen width
+            num_cols = 4  # Increased from 2 to 4 for smaller images
+            
+            # Create columns
+            cols = st.columns(num_cols)
             
             for i, filename in enumerate(successful):
                 data = processed_images[filename]
-                with cols[i % 2]:
+                with cols[i % num_cols]:
                     try:
+                        # Display smaller thumbnail
                         st.image(
                             data['display_image'],
                             caption=filename,
                             use_column_width=True
                         )
+                        
+                        # Add a download button for individual images
+                        st.download_button(
+                            label=f"Download {filename}",
+                            data=data['image_bytes'],
+                            file_name=f"cropped_{filename}",
+                            mime="image/jpeg",
+                            key=f"dl_{filename}_{i}"
+                        )
                     except Exception as e:
                         st.error(f"Error displaying image {filename}: {e}")
                         st.write(f"Processed: {filename}")
             
-            # Download button
+            # Download all button
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 for filename in successful:
@@ -355,7 +370,8 @@ def main():
                 label="📥 Download All Photos",
                 data=zip_buffer,
                 file_name="passport_photos.zip",
-                mime="application/zip"
+                mime="application/zip",
+                key="download_all"
             )
         
         if failed:
@@ -376,4 +392,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
