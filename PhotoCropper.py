@@ -111,23 +111,22 @@ def calculate_crop(image, face, ratio_type='standard'):
     face_center_x = x + w // 2
     face_center_y = y + h // 2
 
-    # Calculate crop dimensions based on face size
-    # For passport photos, the face should be about 50-60% of the image height
-    # (reduced further to give even more space around the face)
+    # For passport photos, the face should be about 70-80% of the image height
+    # This gives less space above the head
     if ratio_type == 'standard':
-        target_height = int(h / 0.5)  # Face height is 50% of total height (was 60%)
+        target_height = int(h / 0.7)  # Face height is 70% of total height
     else:
-        target_height = int(h / 0.45)  # Face height is 45% of total height for square (was 55%)
+        target_height = int(h / 0.65)  # Face height is 65% of total height for square
 
     target_width = int(target_height * target_ratio)
 
-    # Calculate crop coordinates with more headroom
-    # Position the face lower in the frame to allow more space above the head
+    # Calculate crop coordinates with less headroom
+    # Position the face higher in the frame to reduce space above the head
     crop_x1 = max(0, face_center_x - target_width // 2)
     
-    # Add more headroom by positioning the face lower in the frame
-    # The face center should be lower than the vertical center
-    headroom_factor = 0.55  # Position face center at 55% of height (was 60%)
+    # Reduce headroom by positioning the face higher in the frame
+    # The face center should be closer to the vertical center
+    headroom_factor = 0.48  # Reduced from 0.55 to 0.48 to position face higher
     crop_y1 = max(0, int(face_center_y - target_height * headroom_factor))
 
     crop_x2 = min(img_w, crop_x1 + target_width)
@@ -185,7 +184,6 @@ def calculate_crop(image, face, ratio_type='standard'):
         return None
 
     return (crop_x1, crop_y1, crop_x2, crop_y2)
-
 def process_uploaded_files(uploaded_files, ratio_type):
     """Process all uploaded files"""
     processed_images = {}
@@ -402,3 +400,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
