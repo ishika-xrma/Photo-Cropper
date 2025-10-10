@@ -1,403 +1,185 @@
-import streamlit as st
-import numpy as np
-import zipfile
-import io
+import cv2
 import os
-from PIL import Image
-
-# Set page config must be the first Streamlit command
-st.set_page_config(
-    page_title="Passport Photo Cropper",
-    page_icon="📸",
-    layout="wide"
-)
-
-# Try to import OpenCV with fallback
-try:
-    import cv2
-    OPENCV_AVAILABLE = True
-except ImportError:
-    OPENCV_AVAILABLE = False
-    st.error("❌ OpenCV not available - using fallback methods")
-    st.stop()
-
-# Display versions for debugging
-st.sidebar.success("✅ OpenCV loaded successfully")
-st.sidebar.info(f"OpenCV version: {cv2.__version__}")
-st.sidebar.info(f"NumPy version: {np.__version__}")
+import sys
+import numpy as np
+from datetime import datetime
 
 def enhance_image(image):
     """Improve image quality for better face detection"""
-    try:
-        # Convert to LAB color space
-        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        
-        # Apply CLAHE to L channel
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        l = clahe.apply(l)
-        
-        # Merge channels and convert back to BGR
-        lab = cv2.merge((l, a, b))
-        enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-        
-        # Apply sharpening filter
-        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-        return cv2.filter2D(enhanced, -1, kernel)
-        
-    except Exception as e:
-        st.error(f"Error enhancing image: {e}")
-        return image
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    l = clahe.apply(l)
+    lab = cv2.merge((l, a, b))
+    enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+    return cv2.filter2D(enhanced, -1, kernel)
 
 def detect_face(image):
     """Detect faces with improved parameters"""
-    try:
-        # Convert to grayscale
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # Load Haar cascades
-        try:
-            face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            )
-        except:
-            st.error("Could not load face detection model")
-            return None
-        
-        # Detect faces
-        faces = face_cascade.detectMultiScale(
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    detectors = [
+        cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
+        cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml')
+    ]
+    
+    faces = []
+    for detector in detectors:
+        faces.extend(detector.detectMultiScale(
             gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(30, 30),
+            scaleFactor=1.05,
+            minNeighbors=7,
+            minSize=(200, 200),  # Increased minimum face size
             flags=cv2.CASCADE_SCALE_IMAGE
-        )
-        
-        if len(faces) > 0:
-            # Return the largest face
-            faces = sorted(faces, key=lambda x: x[2] * x[3], reverse=True)
-            x, y, w, h = faces[0]
-            
-            # Add more padding for more distance
-            padding = 40  # Increased from 20 to 40 for more distance
-            x = max(0, x - padding)
-            y = max(0, y - padding)
-            w = min(image.shape[1] - x, w + 2 * padding)
-            h = min(image.shape[0] - y, h + 2 * padding)
-            
-            return (x, y, w, h)
-        
-        return None
-        
-    except Exception as e:
-        st.error(f"Error detecting face: {e}")
-        return None
+        ))
+    
+    if faces:
+        # Return largest face with padding
+        face = sorted(faces, key=lambda x: x[2]*x[3], reverse=True)[0]
+        x, y, w, h = face
+        # Add 25% padding around detected face
+        pad = int(w * 0.25)
+        x = max(0, x - pad)
+        y = max(0, y - pad)
+        w = min(image.shape[1] - x, w + 2*pad)
+        h = min(image.shape[0] - y, h + 2*pad)
+        return (x, y, w, h)
+    return None
 
 def calculate_crop(image, face, ratio_type='standard'):
     """
-    Calculate crop with proper headroom while maintaining aspect ratio
+    Calculate crop with slightly less headroom
     ratio_type: 'standard' (2:2.3) or 'square' (1:1)
     """
     x, y, w, h = face
     img_h, img_w = image.shape[:2]
-
-    # Set target ratios
-    if ratio_type == 'standard':
-        target_ratio = 2.0 / 2.3  # Width/Height ratio for standard passport
-    else:  # square
-        target_ratio = 1.0
-
-    # Calculate the center of the face
-    face_center_x = x + w // 2
-    face_center_y = y + h // 2
-
-    # For passport photos, the face should be about 70-80% of the image height
-    # This gives less space above the head
-    if ratio_type == 'standard':
-        target_height = int(h / 0.7)  # Face height is 70% of total height
-    else:
-        target_height = int(h / 0.65)  # Face height is 65% of total height for square
-
-    target_width = int(target_height * target_ratio)
-
-    # Calculate crop coordinates with less headroom
-    # Position the face higher in the frame to reduce space above the head
-    crop_x1 = max(0, face_center_x - target_width // 2)
     
-    # Reduce headroom by positioning the face higher in the frame
-    # The face center should be closer to the vertical center
-    headroom_factor = 0.48  # Reduced from 0.55 to 0.48 to position face higher
-    crop_y1 = max(0, int(face_center_y - target_height * headroom_factor))
-
+    # Set ratios and face position - less headroom
+    if ratio_type == 'standard':
+        target_ratio = 2 / 2.3
+        face_height_ratio = 0.65  # Face takes 65% of photo height
+        headroom_ratio = 0.13     # Reduced from 0.2 - less space above head
+    else:  # square
+        target_ratio = 1
+        face_height_ratio = 0.6   # Face takes 60% of photo height
+        headroom_ratio = 0.22     # Reduced from 0.25 - less space above head
+    
+    # Calculate dimensions
+    target_height = int(h / face_height_ratio)
+    target_width = int(target_height * target_ratio)
+    
+    # Calculate crop coordinates with reduced headroom
+    face_center_x = x + w // 2
+    head_top = y  # Top of head position
+    
+    crop_x1 = max(0, face_center_x - target_width // 2)
+    crop_y1 = max(0, head_top - int(target_height * headroom_ratio))
+    
     crop_x2 = min(img_w, crop_x1 + target_width)
     crop_y2 = min(img_h, crop_y1 + target_height)
-
-    # Adjust if we're at image boundaries
+    
+    # Adjust if at image boundaries
     if crop_x2 - crop_x1 < target_width:
-        # If we need more width, adjust accordingly
         if crop_x1 == 0:
             crop_x2 = min(img_w, target_width)
         else:
             crop_x1 = max(0, img_w - target_width)
-
+    
     if crop_y2 - crop_y1 < target_height:
-        # If we need more height, adjust accordingly
         if crop_y1 == 0:
             crop_y2 = min(img_h, target_height)
         else:
             crop_y1 = max(0, img_h - target_height)
-
-    # Final adjustment to ensure we have the exact aspect ratio
-    final_width = crop_x2 - crop_x1
-    final_height = crop_y2 - crop_y1
-
-    # If the aspect ratio doesn't match, adjust the larger dimension
-    current_ratio = final_width / final_height
-
-    if abs(current_ratio - target_ratio) > 0.05:  # Only adjust if significantly off
-        if current_ratio > target_ratio:
-            # Too wide, reduce width
-            target_height = final_height
-            target_width = int(target_height * target_ratio)
-            crop_x1 = face_center_x - target_width // 2
-            crop_x2 = crop_x1 + target_width
-        else:
-            # Too tall, reduce height
-            target_width = final_width
-            target_height = int(target_width / target_ratio)
-            crop_y1 = face_center_y - target_height // 2
-            crop_y2 = crop_y1 + target_height
-
-    # Ensure we're still within image boundaries after adjustment
-    crop_x1 = max(0, crop_x1)
-    crop_y1 = max(0, crop_y1)
-    crop_x2 = min(img_w, crop_x2)
-    crop_y2 = min(img_h, crop_y2)
-
-    # Final dimensions
-    final_width = crop_x2 - crop_x1
-    final_height = crop_y2 - crop_y1
-
-    # Verify minimum dimensions
-    min_dim = 300
-    if final_width < min_dim or final_height < min_dim:
+    
+    # Verify minimum dimensions (400px for better quality)
+    min_dim = 400
+    if (crop_x2 - crop_x1) < min_dim or (crop_y2 - crop_y1) < min_dim:
         return None
-
+    
     return (crop_x1, crop_y1, crop_x2, crop_y2)
-def process_uploaded_files(uploaded_files, ratio_type):
-    """Process all uploaded files"""
-    processed_images = {}
+
+def process_image(image_path, output_folder, counter, ratio_type):
+    """Process single image with reduced headroom"""
+    try:
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"Error reading image: {image_path}")
+            return False
+        
+        enhanced = enhance_image(image)
+        face = detect_face(enhanced)
+        if face is None:
+            print(f"No face detected in {os.path.basename(image_path)}")
+            return False
+        
+        crop = calculate_crop(image, face, ratio_type)
+        if not crop:
+            print(f"Invalid crop for {os.path.basename(image_path)}")
+            return False
+        
+        x1, y1, x2, y2 = crop
+        
+        # Crop and resize with high quality
+        cropped = image[y1:y2, x1:x2]
+        if ratio_type == 'standard':
+            output_size = (600, 690)  # 2:2.3 ratio
+        else:
+            output_size = (600, 600)  # Square
+        
+        resized = cv2.resize(cropped, output_size, interpolation=cv2.INTER_CUBIC)
+        
+        # Save result
+        original_name = os.path.splitext(os.path.basename(image_path))[0]
+        output_filename = f"{original_name}.jpg"
+        output_path = os.path.join(output_folder, output_filename)
+        cv2.imwrite(output_path, resized, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        
+        return True
     
-    for uploaded_file in uploaded_files:
-        try:
-            # Read and decode image
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            
-            if image is None:
-                processed_images[uploaded_file.name] = {
-                    'success': False,
-                    'error': "Invalid image file"
-                }
-                continue
-            
-            # Enhance image
-            enhanced = enhance_image(image)
-            
-            # Detect face
-            face = detect_face(enhanced)
-            
-            if not face:
-                processed_images[uploaded_file.name] = {
-                    'success': False,
-                    'error': "No face detected"
-                }
-                continue
-            
-            # Calculate crop
-            crop = calculate_crop(image, face, ratio_type)
-            
-            if not crop:
-                processed_images[uploaded_file.name] = {
-                    'success': False,
-                    'error': "Could not calculate crop"
-                }
-                continue
-            
-            # Apply crop
-            x1, y1, x2, y2 = crop
-            cropped = image[y1:y2, x1:x2]
-            
-            # Resize to standard size
-            if ratio_type == 'standard':
-                output_size = (600, 690)  # 2:2.3 ratio
-            else:
-                output_size = (600, 600)  # Square
-            
-            resized = cv2.resize(cropped, output_size, interpolation=cv2.INTER_CUBIC)
-            
-            # Convert for display (BGR to RGB) and to PIL Image
-            rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-            pil_image = Image.fromarray(rgb_image)
-            
-            # Create a smaller version for display (even smaller)
-            display_size = (150, 173) if ratio_type == 'standard' else (150, 150)
-            display_image = pil_image.resize(display_size, Image.LANCZOS)
-            
-            # Encode for download
-            _, buffer = cv2.imencode('.jpg', resized, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            
-            processed_images[uploaded_file.name] = {
-                'image_bytes': buffer.tobytes(),
-                'display_image': display_image,  # Use the smaller version for display
-                'full_image': pil_image,  # Keep the full size version for download
-                'success': True
-            }
-            
-        except Exception as e:
-            processed_images[uploaded_file.name] = {
-                'success': False,
-                'error': f"Processing error: {str(e)}"
-            }
-    
-    return processed_images
+    except Exception as e:
+        print(f"Error processing {image_path}: {str(e)}")
+        return False
 
 def main():
-    st.title("📸 Passport Photo Cropper")
-    st.write("Automatically crop and resize photos for passport applications")
+    if len(sys.argv) < 4:
+        print("Usage: python passport_cropper.py <input_folder> <output_folder> <ratio_type>")
+        print("ratio_type: 'standard' (2x2.3cm) or 'square' (1x1)")
+        print("Example: python passport_cropper.py ./input ./output standard")
+        sys.exit(1)
     
-    # Initialize session state
-    if 'processed' not in st.session_state:
-        st.session_state.processed = False
-    if 'processed_images' not in st.session_state:
-        st.session_state.processed_images = {}
+    input_folder = sys.argv[1]
+    output_folder = sys.argv[2]
+    ratio_type = sys.argv[3].lower()
     
-    # Settings
-    col1, col2 = st.columns([1, 2])
+    if ratio_type not in ('standard', 'square'):
+        print("Invalid ratio type. Use 'standard' or 'square'")
+        sys.exit(1)
     
-    with col1:
-        st.subheader("Settings")
-        ratio_type = st.radio(
-            "Photo Type:",
-            ["Standard (2x2.3cm)", "Square (1x1)"],
-            index=0
-        )
-        ratio_type = "standard" if "Standard" in ratio_type else "square"
+    if not os.path.exists(input_folder):
+        print(f"Input folder not found: {input_folder}")
+        sys.exit(1)
+    
+    os.makedirs(output_folder, exist_ok=True)
+    
+    supported_formats = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
+    images = [f for f in os.listdir(input_folder) if f.lower().endswith(supported_formats)]
+    
+    if not images:
+        print("No supported images found")
+        sys.exit(1)
+    
+    success_count = 0
+    for i, img in enumerate(images, 1):
+        img_path = os.path.join(input_folder, img)
+        print(f"\nProcessing {i}/{len(images)}: {img}")
         
-        st.info("""
-        **Instructions:**
-        1. Upload photos with clear front-facing faces
-        2. Click 'Process Photos'
-        3. Download your cropped photos
-        """)
+        if process_image(img_path, output_folder, i, ratio_type):
+            success_count += 1
+            print(f"Successfully created passport photo with reduced headroom")
+        else:
+            print(f"Failed to process {img}")
     
-    with col2:
-        st.subheader("Upload Photos")
-        uploaded_files = st.file_uploader(
-            "Choose images",
-            type=["jpg", "jpeg", "png"],
-            accept_multiple_files=True,
-            help="Select one or more photos to process"
-        )
-    
-    # Process files
-    if uploaded_files:
-        st.success(f"📁 Found {len(uploaded_files)} file(s)")
-        
-        if not st.session_state.processed:
-            if st.button("🚀 Process Photos", type="primary"):
-                with st.spinner("Processing images..."):
-                    processed_images = process_uploaded_files(uploaded_files, ratio_type)
-                    st.session_state.processed_images = processed_images
-                    st.session_state.processed = True
-                    st.rerun()
-    
-    # Display results
-    if st.session_state.processed and st.session_state.processed_images:
-        processed_images = st.session_state.processed_images
-        successful = [k for k, v in processed_images.items() if v['success']]
-        failed = [k for k, v in processed_images.items() if not v['success']]
-        
-        st.subheader("Results")
-        
-        if successful:
-            st.success(f"✅ Processed {len(successful)} photo(s) successfully")
-            
-            # Display processed images in a grid with smaller thumbnails
-            st.subheader("Processed Photos (Small Preview)")
-            
-            # Calculate number of columns based on screen width
-            num_cols = 6  # Increased to 6 for even smaller images
-            
-            # Create columns
-            cols = st.columns(num_cols)
-            
-            for i, filename in enumerate(successful):
-                data = processed_images[filename]
-                with cols[i % num_cols]:
-                    try:
-                        # Display smaller thumbnail
-                        st.image(
-                            data['display_image'],
-                            caption=filename,
-                            use_column_width=True
-                        )
-                    except Exception as e:
-                        st.error(f"Error displaying image {filename}: {e}")
-                        st.write(f"Processed: {filename}")
-            
-            # Add individual download buttons in a separate section
-            st.subheader("Download Options")
-            
-            # Individual download buttons in a grid
-            dl_cols = st.columns(4)
-            for i, filename in enumerate(successful):
-                data = processed_images[filename]
-                with dl_cols[i % 4]:
-                    st.download_button(
-                        label=f"⬇️ {filename[:15]}...",
-                        data=data['image_bytes'],
-                        file_name=f"cropped_{filename}",
-                        mime="image/jpeg",
-                        key=f"dl_{filename}_{i}"
-                    )
-            
-            # Download all button
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                for filename in successful:
-                    data = processed_images[filename]
-                    zip_file.writestr(filename, data['image_bytes'])
-            
-            zip_buffer.seek(0)
-            
-            st.download_button(
-                label="📥 Download All Photos as ZIP",
-                data=zip_buffer,
-                file_name="passport_photos.zip",
-                mime="application/zip",
-                key="download_all",
-                use_container_width=True
-            )
-        
-        if failed:
-            st.warning(f"❌ Failed to process {len(failed)} photo(s)")
-            
-            with st.expander("Show failed photos"):
-                for filename in failed:
-                    st.error(f"{filename}: {processed_images[filename]['error']}")
-        
-        # Reset button
-        if st.button("🔄 Process New Photos", use_container_width=True):
-            # Clear session state to reset the app
-            st.session_state.processed = False
-            st.session_state.processed_images = {}
-            # Use experimental_rerun to clear the file uploader
-            st.rerun()
-    
-    elif not uploaded_files:
-        st.info("👆 Upload photos above to get started")
+    print(f"\nCompleted. Successfully processed {success_count}/{len(images)} images.")
 
 if __name__ == "__main__":
     main()
-
